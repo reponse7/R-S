@@ -16,6 +16,7 @@ export function Suppliers() {
   const [paymentTerms, setPaymentTerms] = useState("");
   const [leadTimeDays, setLeadTimeDays] = useState("");
   const [preferredCurrency, setPreferredCurrency] = useState<'RWF' | 'USD'>("USD");
+  const [quotationRef, setQuotationRef] = useState("");
 
   // Custom Fields Engine
   const [customFields, setCustomFields] = useState<{key: string, value: string}[]>([]);
@@ -51,6 +52,7 @@ export function Suppliers() {
       paymentTerms,
       leadTimeDays: parseInt(leadTimeDays) || 0,
       preferredCurrency,
+      quotationRef,
       raw_metadata,
       syncStatus: 'pending' as const
     };
@@ -63,7 +65,7 @@ export function Suppliers() {
 
     setIsModalOpen(false);
     setEditingId(null);
-    setName(""); setContactInfo(""); setAddress(""); setCategories(""); setPaymentTerms(""); setLeadTimeDays(""); setPreferredCurrency("USD");
+    setName(""); setContactInfo(""); setAddress(""); setCategories(""); setPaymentTerms(""); setLeadTimeDays(""); setPreferredCurrency("USD"); setQuotationRef("");
     setCustomFields([]);
   };
 
@@ -76,6 +78,7 @@ export function Suppliers() {
     setPaymentTerms(supplier.paymentTerms);
     setLeadTimeDays(supplier.leadTimeDays?.toString() || "");
     setPreferredCurrency(supplier.preferredCurrency || "USD");
+    setQuotationRef(supplier.quotationRef || "");
     
     const cFields = [];
     if (supplier.raw_metadata) {
@@ -157,6 +160,12 @@ export function Suppliers() {
                   <span className="text-gray-500">Preferred Cur.</span>
                   <span className="font-medium text-gray-900 dark:text-white">{supplier.preferredCurrency}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Active Quote</span>
+                  <span className="font-medium text-gray-900 dark:text-white truncate max-w-[100px] text-right" title={supplier.quotationRef}>
+                    {supplier.quotationRef || 'None'}
+                  </span>
+                </div>
                 {supplier.raw_metadata && Object.keys(supplier.raw_metadata).length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-200 dark:border-slate-600">
                     {Object.entries(supplier.raw_metadata).map(([k, v]) => (
@@ -219,6 +228,11 @@ export function Suppliers() {
               <label className="label-text">Payment Terms</label>
               <input required type="text" className="input-field" value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)} placeholder="e.g. 50% Adv, 50% LC" />
             </div>
+          </div>
+
+          <div>
+            <label className="label-text">Quotation Tracking (Link or Value)</label>
+            <input type="text" className="input-field" value={quotationRef} onChange={e => setQuotationRef(e.target.value)} placeholder="e.g. Q-2023-11 ($4.5/kg) or Drive Link" />
           </div>
 
           <div className="border-t border-gray-200 dark:border-slate-700 pt-4">

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Plus, Package, AlertTriangle, CheckCircle2, AlertCircle, ArrowRight, Edit2, Trash2 } from "lucide-react";
 import { db, type StockItem } from "../lib/localDb";
@@ -16,7 +17,16 @@ export function Inventory() {
   const stockItems = useLiveQuery(() => db.stockItems.toArray());
   const clients = useLiveQuery(() => db.clientProfiles.toArray());
   
-  const [activeTab, setActiveTab] = useState<'intake' | 'dispatch'>('intake');
+  const locationHook = useLocation();
+  const searchParams = new URLSearchParams(locationHook.search);
+  
+  const [activeTab, setActiveTab] = useState<'intake' | 'dispatch'>(searchParams.get('tab') === 'dispatch' ? 'dispatch' : 'intake');
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'dispatch') {
+      setActiveTab('dispatch');
+    }
+  }, [locationHook.search]);
 
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [isStockOutModalOpen, setIsStockOutModalOpen] = useState(false);
@@ -33,6 +43,8 @@ export function Inventory() {
   const [unitCostCurrency, setUnitCostCurrency] = useState<'RWF' | 'USD'>("USD");
   const [location, setLocation] = useState("");
   const [batchRef, setBatchRef] = useState("");
+  const [supplierName, setSupplierName] = useState("");
+  const [leadTime, setLeadTime] = useState("");
   const [reorderPoint, setReorderPoint] = useState("");
   
   // Dynamic Specs
@@ -66,9 +78,15 @@ export function Inventory() {
     const finalUnit = unit === "+ Custom UoM" ? customUnit : unit;
     const finalBatch = batchRef || `PO-${Date.now().toString().slice(-6)}`;
     
-    const existing = stockItems?.find(s => s.name.toLowerCase() === name.toLowerCase() && s.batchRef === finalBatch);
+    const existing = stockItems?.find(s => s.name.toLowerCase() === name.toLowerCase() && s.category === finalCategory);
     
     if (editingId) {
+      const itemToEdit = stockItems?.find(s => s.id === editingId);
+      const currentBatches = itemToEdit?.batches || [];
+      if (batchRef && !currentBatches.find(b => b.ref === batchRef)) {
+         currentBatches.push({ ref: batchRef, quantity: parsedQty, date: new Date().toISOString() });
+      }
+
       await db.stockItems.update(editingId, {
         name,
         category: finalCategory,
@@ -78,16 +96,30 @@ export function Inventory() {
         unitCost: parseFloat(unitCost) || 0,
         unitCostCurrency,
         location,
-        batchRef: finalBatch,
+        supplierName,
+        leadTime: parseFloat(leadTime) || 0,
+        batches: currentBatches.length > 0 ? currentBatches : (batchRef ? [{ ref: batchRef, quantity: parsedQty, date: new Date().toISOString() }] : []),
         attributes: specs,
         lastUpdated: new Date().toISOString(),
         syncStatus: 'pending'
       });
     } else if (existing && existing.id) {
+      // Smart Batch Aggregation
+      const currentBatches = existing.batches || [];
+      const batchExists = currentBatches.find(b => b.ref === finalBatch);
+      if (batchExists) {
+         batchExists.quantity += parsedQty;
+      } else {
+         currentBatches.push({ ref: finalBatch, quantity: parsedQty, date: new Date().toISOString() });
+      }
+
       await db.stockItems.update(existing.id, {
         quantity: existing.quantity + parsedQty,
         unitCost: parseFloat(unitCost) || existing.unitCost,
         unitCostCurrency,
+        supplierName: supplierName || existing.supplierName,
+        leadTime: parseFloat(leadTime) || existing.leadTime,
+        batches: currentBatches,
         syncStatus: 'pending'
       });
       
@@ -110,7 +142,9 @@ export function Inventory() {
         unitCost: parseFloat(unitCost) || 0,
         unitCostCurrency,
         location,
-        batchRef: finalBatch,
+        supplierName,
+        leadTime: parseFloat(leadTime) || 0,
+        batches: [{ ref: finalBatch, quantity: parsedQty, date: new Date().toISOString() }],
         attributes: specs,
         lastUpdated: new Date().toISOString(),
         syncStatus: 'pending'
@@ -129,7 +163,7 @@ export function Inventory() {
     setIsStockInModalOpen(false);
     setEditingId(null);
     // Reset form
-    setName(""); setQuantity(""); setUnitCost(""); setLocation(""); setBatchRef(""); setSpecs({}); setReorderPoint("");
+    setName(""); setQuantity(""); setUnitCost(""); setLocation(""); setBatchRef(""); setSupplierName(""); setLeadTime(""); setSpecs({}); setReorderPoint("");
   };
 
   const handleEdit = (item: StockItem) => {
@@ -143,7 +177,9 @@ export function Inventory() {
     setUnitCost(item.unitCost.toString());
     setUnitCostCurrency(item.unitCostCurrency || 'USD');
     setLocation(item.location || "");
-    setBatchRef(item.batchRef || "");
+    setBatchRef(""); // Intentionally empty to allow appending new batches in edit mode
+    setSupplierName(item.supplierName || "");
+    setLeadTime(item.leadTime?.toString() || "");
     setReorderPoint(item.reorderPoint.toString());
     
     const attrs = item.attributes || {};
@@ -189,6 +225,19 @@ export function Inventory() {
       date: new Date().toISOString(),
       syncStatus: 'pending'
     });
+
+    // Update client analytics if a client was selected
+    if (selectedClientId) {
+      const client = clients?.find(c => c.id === selectedClientId || c.id === parseInt(selectedClientId));
+      if (client) {
+         await db.clientProfiles.update(client.id!, {
+           totalOrders: (client.totalOrders || 0) + 1,
+           totalQuantityProduced: (client.totalQuantityProduced || 0) + parsedQty,
+           lastOrderDate: new Date().toISOString().split('T')[0],
+           syncStatus: 'pending'
+         });
+      }
+    }
     
     setIsStockOutModalOpen(false);
     setSelectedItem(null); setOutQuantity(""); setSelectedClientId(""); setClientOverride("");
@@ -278,7 +327,7 @@ export function Inventory() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-gray-900 dark:text-slate-100">{item.location || 'Unassigned'}</div>
-                        <div className="text-xs text-gray-500 dark:text-slate-400 mt-1 font-mono">{item.batchRef}</div>
+                        <div className="text-xs text-gray-500 dark:text-slate-400 mt-1 font-mono">{item.batches?.map(b => b.ref).join(', ') || 'No Batch'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {getStatusBadge(item)}
@@ -307,7 +356,7 @@ export function Inventory() {
               <div className="absolute top-0 left-0 w-1 bg-gradient-to-b from-transparent via-amber-500 to-transparent h-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
               <div className="flex justify-between items-start mb-3">
                 {getStatusBadge(item)}
-                <span className="text-xs font-mono text-gray-400">{item.batchRef}</span>
+                <span className="text-xs font-mono text-gray-400">{item.batches?.length ? item.batches[0].ref : 'No Batch'}</span>
               </div>
               <h3 className="text-lg font-bold text-gray-900 dark:text-white leading-tight mb-1">{item.name}</h3>
               <p className="text-xs text-gray-500 dark:text-slate-400 mb-4">{item.category}</p>
@@ -418,6 +467,17 @@ export function Inventory() {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label-text">Supplier Name (Optional)</label>
+              <input type="text" className="input-field" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Supplier Ltd" />
+            </div>
+            <div>
+              <label className="label-text">Lead Time (Days)</label>
+              <input required type="number" min="0" className="input-field" value={leadTime} onChange={e => setLeadTime(e.target.value)} placeholder="e.g. 14" />
+            </div>
+          </div>
+
           <div className="border-t border-gray-200 dark:border-slate-700 pt-4">
             <label className="label-text mb-2">Dynamic Specification Parameters</label>
             <div className="flex flex-wrap gap-2 mb-4">
@@ -458,7 +518,7 @@ export function Inventory() {
           <form onSubmit={handleStockOut} className="space-y-5">
             <div className="bg-amber-50 dark:bg-amber-500/10 p-4 rounded-xl border border-amber-200 dark:border-amber-500/30">
               <h4 className="font-bold text-amber-900 dark:text-amber-400">{selectedItem.name}</h4>
-              <p className="text-sm text-amber-700 dark:text-amber-500/80 mb-2">{selectedItem.batchRef} • {selectedItem.location || 'No Location'}</p>
+              <p className="text-sm text-amber-700 dark:text-amber-500/80 mb-2">{selectedItem.batches?.[0]?.ref || 'No Batch'} • {selectedItem.location || 'No Location'}</p>
               <div className="flex justify-between items-center text-sm">
                 <span className="font-medium text-amber-900 dark:text-amber-400">Available: <span className="font-bold">{selectedItem.quantity} {selectedItem.unit}</span></span>
                 <span className="text-amber-700 dark:text-amber-500/80">Value: {formatCurrency(convertAmount(selectedItem.unitCost, selectedItem.unitCostCurrency, currency))}/{selectedItem.unit}</span>

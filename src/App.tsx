@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, Outlet } from "react-router-dom"
 import { Layout } from "./components/Layout"
 import { Dashboard } from "./pages/Dashboard"
+import { TrendAnalysis } from "./pages/TrendAnalysis"
 import { Inventory } from "./pages/Inventory"
 import { Clients } from "./pages/Clients"
 import { Suppliers } from "./pages/Suppliers"
@@ -8,6 +9,8 @@ import { Procurement } from "./pages/Procurement"
 import { Settings } from "./pages/Settings"
 import { Auth } from "./pages/Auth"
 import { useAuth } from "./context/AuthContext"
+import { useEffect } from "react"
+import { deduplicateClients } from "./lib/localDb"
 
 function ProtectedRoute() {
   const { user, isLoading } = useAuth();
@@ -24,6 +27,10 @@ function ProtectedRoute() {
 }
 
 function App() {
+  useEffect(() => {
+    deduplicateClients().catch(console.error);
+  }, []);
+
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
@@ -31,6 +38,7 @@ function App() {
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
+          <Route path="trends" element={<TrendAnalysis />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="clients" element={<Clients />} />
           <Route path="suppliers" element={<Suppliers />} />

@@ -1,9 +1,9 @@
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks"
 import { db } from "../lib/localDb"
 import { useAppContext } from "../context/AppContext"
 import { Link } from "react-router-dom"
-import { Plus, Minus, FileText, Package, Users, Truck, ArrowUpRight, ArrowDownRight, Clock, AlertCircle } from "lucide-react"
+import { Plus, Minus, FileText, Package, Users, Truck, ArrowUpRight, ArrowDownRight, Clock, AlertCircle, Search } from "lucide-react"
 import { cn } from "../lib/utils"
 
 export function Dashboard() {
@@ -11,6 +11,16 @@ export function Dashboard() {
   
   const stockItems = useLiveQuery(() => db.stockItems.toArray())
   const transactionLogs = useLiveQuery(() => db.transactionLogs.reverse().limit(10).toArray())
+  const clients = useLiveQuery(() => db.clientProfiles.toArray())
+  const suppliers = useLiveQuery(() => db.supplierProfiles.toArray())
+
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const searchResults = {
+    items: stockItems?.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.batches?.some(b => b.ref.toLowerCase().includes(searchQuery.toLowerCase()))) || [],
+    clients: clients?.filter(c => c.companyName.toLowerCase().includes(searchQuery.toLowerCase()) || c.tin?.toLowerCase().includes(searchQuery.toLowerCase())) || [],
+    suppliers: suppliers?.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase())) || [],
+  };
 
   useEffect(() => {
     if (!localStorage.getItem('wipedMockData')) {
@@ -36,10 +46,59 @@ export function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">System Overview</h1>
           <p className="text-gray-500 dark:text-slate-400 mt-1">Welcome to RS Inventory Spatial Dashboard.</p>
+        </div>
+        <div className="relative w-full md:w-96">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="Search inventory, clients, suppliers..." 
+              value={searchQuery || ''}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-shadow"
+            />
+          </div>
+          {searchQuery && searchQuery.length > 2 && (
+            <div className="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-700 max-h-96 overflow-y-auto z-50 p-2">
+              {searchResults.items.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase px-2 mb-2">Inventory</h4>
+                  {searchResults.items.slice(0,3).map(item => (
+                     <div key={item.id} className="px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-700 rounded cursor-pointer text-sm">
+                       {item.name} - {item.quantity} {item.unit}
+                     </div>
+                  ))}
+                </div>
+              )}
+              {searchResults.clients.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase px-2 mb-2">Clients</h4>
+                  {searchResults.clients.slice(0,3).map(c => (
+                     <div key={c.id} className="px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-700 rounded cursor-pointer text-sm">
+                       {c.companyName} (TIN: {c.tin})
+                     </div>
+                  ))}
+                </div>
+              )}
+              {searchResults.suppliers.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase px-2 mb-2">Suppliers</h4>
+                  {searchResults.suppliers.slice(0,3).map(s => (
+                     <div key={s.id} className="px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-700 rounded cursor-pointer text-sm">
+                       {s.name}
+                     </div>
+                  ))}
+                </div>
+              )}
+              {searchResults.items.length === 0 && searchResults.clients.length === 0 && searchResults.suppliers.length === 0 && (
+                <div className="p-4 text-center text-sm text-gray-500">No results found.</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -136,7 +195,7 @@ export function Dashboard() {
               <span className="text-sm font-medium text-gray-900 dark:text-slate-100">Stock In</span>
             </Link>
             
-            <Link to="/inventory" className="glass-card p-4 flex flex-col items-center justify-center text-center hover:-translate-y-1 transition-transform group">
+            <Link to="/inventory?tab=dispatch" className="glass-card p-4 flex flex-col items-center justify-center text-center hover:-translate-y-1 transition-transform group">
               <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center mb-3 group-hover:bg-amber-100 dark:group-hover:bg-amber-500/20 transition-colors">
                 <Minus className="w-6 h-6 text-amber-600 dark:text-amber-500" />
               </div>

@@ -148,7 +148,7 @@ export function Procurement() {
           unitCost: 0,
           unitCostCurrency: 'USD',
           location: 'Main Warehouse',
-          batchRef,
+          batches: [{ ref: batchRef, quantity: orderToStockIn.quantity, date: new Date().toISOString() }],
           attributes: orderToStockIn.specifications,
           lastUpdated: new Date().toISOString(),
           syncStatus: 'pending'

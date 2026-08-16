@@ -2,11 +2,10 @@ import { Outlet, Link, useLocation } from "react-router-dom"
 import { useTheme } from "./ThemeProvider"
 import { useAppContext, type Currency } from "../context/AppContext"
 import { useAuth } from "../context/AuthContext"
-import { Sun, Moon, Package, Users, Truck, LayoutDashboard, Settings, Wifi, WifiOff, Bell, X, AlertTriangle, AlertCircle, Info, CheckCircle2, Menu, LogOut } from "lucide-react"
+import { Sun, Moon, Package, Users, Truck, LayoutDashboard, Settings, Wifi, WifiOff, Bell, X, AlertTriangle, AlertCircle, Info, CheckCircle2, Menu, LogOut, BarChart3 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { cn } from "../lib/utils"
 import { generateAlerts, type Alert } from "../lib/alerts"
-import { RoyFloatingCopilot } from "./RoyFloatingCopilot"
 
 function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
   const location = useLocation()
@@ -14,6 +13,7 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) 
   
   const navItems = [
     { name: "Dashboard", path: "/", icon: LayoutDashboard },
+    { name: "Trend Analysis", path: "/trends", icon: BarChart3 },
     { name: "Inventory", path: "/inventory", icon: Package },
     { name: "Procurement", path: "/procurement", icon: Truck },
     { name: "Clients", path: "/clients", icon: Users },
@@ -240,8 +240,6 @@ export function Layout() {
           </div>
         </div>
 
-        {/* Global Floating Copilot */}
-        <RoyFloatingCopilot />
       </div>
     </div>
   )

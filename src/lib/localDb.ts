@@ -11,10 +11,12 @@ export interface StockItem {
   reorderPoint: number;
   safetyStock: number;
   supplierId?: number;
+  supplierName?: string;
+  leadTime?: string | number;
   unitCost: number;
   unitCostCurrency: 'RWF' | 'USD';
   location: string;
-  batchRef: string;
+  batches: Array<{ ref: string; quantity: number; date: string }>;
   lastUpdated: string;
   raw_metadata?: Record<string, any>;
   syncStatus: 'pending' | 'synced' | 'error';
@@ -51,6 +53,7 @@ export interface SupplierProfile {
   address: string;
   leadTimeDays: number;
   preferredCurrency: 'RWF' | 'USD';
+  quotationRef?: string;
   raw_metadata?: Record<string, any>;
   syncStatus: 'pending' | 'synced' | 'error';
 }
@@ -109,15 +112,83 @@ export class RSLocalDB extends Dexie {
 
   constructor() {
     super('RSLocalDB');
-    this.version(3).stores({
+    this.version(4).stores({
       stockItems: '++id, supabaseId, name, category, syncStatus',
       clientProfiles: '++id, supabaseId, companyName, syncStatus',
       supplierProfiles: '++id, supabaseId, name, syncStatus',
       clientOrders: '++id, supabaseId, clientId, status, syncStatus',
       purchaseOrders: '++id, supabaseId, supplierId, status, syncStatus',
       transactionLogs: '++id, type, itemId, syncStatus'
+    }).upgrade(tx => {
+      return tx.table('stockItems').toCollection().modify(item => {
+        if (item.batchRef && !item.batches) {
+          item.batches = [{ ref: item.batchRef, quantity: item.quantity, date: item.lastUpdated }];
+          delete item.batchRef;
+        }
+      });
     });
   }
 }
 
 export const db = new RSLocalDB();
+
+export const deduplicateClients = async () => {
+  const clients = await db.clientProfiles.toArray();
+  const normalizedMap = new Map<string, ClientProfile[]>();
+
+  const normalizeName = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/\b(ltd|co|inc|ets|ste|sarl|group|distillers|company)\b/g, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+  };
+
+  clients.forEach(c => {
+    const key = normalizeName(c.companyName);
+    if (!key) return; // skip empty names
+    if (!normalizedMap.has(key)) normalizedMap.set(key, []);
+    normalizedMap.get(key)!.push(c);
+  });
+
+  for (const [, duplicates] of normalizedMap.entries()) {
+    if (duplicates.length > 1) {
+      duplicates.sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0));
+      const master = duplicates[0];
+      const toDelete = duplicates.slice(1);
+
+      for (const dup of toDelete) {
+        master.totalOrders = (master.totalOrders || 0) + (dup.totalOrders || 0);
+        master.totalQuantityProduced = (master.totalQuantityProduced || 0) + (dup.totalQuantityProduced || 0);
+        
+        if (dup.lastOrderDate) {
+          if (!master.lastOrderDate || new Date(dup.lastOrderDate) > new Date(master.lastOrderDate)) {
+            master.lastOrderDate = dup.lastOrderDate;
+          }
+        }
+
+        // Combine boxModels
+        if (dup.boxModels) {
+          const masterModels = master.boxModels ? master.boxModels.split(',').map(s => s.trim()) : [];
+          const dupModels = dup.boxModels.split(',').map(s => s.trim());
+          const merged = Array.from(new Set([...masterModels, ...dupModels]));
+          master.boxModels = merged.join(', ');
+        }
+
+        const txs = await db.transactionLogs.where('clientId').equals(dup.id as any).toArray();
+        for (const tx of txs) {
+          await db.transactionLogs.update(tx.id!, { clientId: master.id as number });
+        }
+        
+        await db.clientProfiles.delete(dup.id!);
+      }
+      
+      await db.clientProfiles.update(master.id!, {
+        totalOrders: master.totalOrders,
+        totalQuantityProduced: master.totalQuantityProduced,
+        lastOrderDate: master.lastOrderDate,
+        boxModels: master.boxModels
+      } as any);
+    }
+  }
+};

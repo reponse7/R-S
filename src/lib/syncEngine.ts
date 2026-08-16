@@ -37,45 +37,66 @@ export class SyncEngine {
     const table = db[localTableName] as any; // Cast for generic access
     if (!table) return;
 
-    const pendingRecords = await table.where('syncStatus').equals('pending').toArray();
-    
-    if (pendingRecords.length === 0) return;
-    
-    console.log(`[SyncEngine] Found ${pendingRecords.length} pending records in ${localTableName}`);
-
-    for (const record of pendingRecords) {
-      try {
-        const { id, syncStatus, ...dataToSync } = record;
-        
-        // If it doesn't have a supabaseId, it's an insert, otherwise update.
-        // For simplicity, we just use upsert if supabaseId exists, else insert
-        let response;
-        if (record.supabaseId) {
-           response = await supabase
-            .from(supabaseTableName)
-            .update(dataToSync)
-            .eq('id', record.supabaseId)
-            .select()
-            .single();
-        } else {
-           response = await supabase
-            .from(supabaseTableName)
-            .insert([dataToSync])
-            .select()
-            .single();
+    try {
+      // 1. PULL from Supabase
+      const { data: remoteData, error: pullError } = await supabase.from(supabaseTableName).select('*');
+      if (pullError) {
+        console.error(`[SyncEngine] Pull error for ${supabaseTableName}:`, pullError);
+      } else if (remoteData && remoteData.length > 0) {
+        for (const remoteRecord of remoteData) {
+          // Check if it exists locally by supabaseId
+          const localMatch = await table.where('supabaseId').equals(remoteRecord.id).first();
+          if (localMatch) {
+            // Update local with remote data
+            await table.update(localMatch.id, { ...remoteRecord, supabaseId: remoteRecord.id, syncStatus: 'synced' });
+          } else {
+            // Insert into local
+            const { id: _, ...rest } = remoteRecord;
+            await table.add({ ...rest, supabaseId: remoteRecord.id, syncStatus: 'synced' });
+          }
         }
-
-        if (response.error) throw response.error;
-
-        // Update local record with supabaseId and synced status
-        await table.update(record.id, {
-          supabaseId: response.data.id,
-          syncStatus: 'synced'
-        });
-      } catch (err) {
-        console.error(`[SyncEngine] Failed to sync record from ${localTableName}:`, err);
-        await table.update(record.id, { syncStatus: 'error' });
       }
+
+      // 2. PUSH pending local records
+      const pendingRecords = await table.where('syncStatus').equals('pending').toArray();
+      if (pendingRecords.length === 0) return;
+      
+      console.log(`[SyncEngine] Found ${pendingRecords.length} pending records in ${localTableName}`);
+
+      for (const record of pendingRecords) {
+        try {
+          const { id, syncStatus, supabaseId, ...dataToSync } = record;
+          
+          let response;
+          if (supabaseId) {
+             response = await supabase
+              .from(supabaseTableName)
+              .update(dataToSync)
+              .eq('id', supabaseId)
+              .select()
+              .single();
+          } else {
+             response = await supabase
+              .from(supabaseTableName)
+              .insert([dataToSync])
+              .select()
+              .single();
+          }
+
+          if (response.error) throw response.error;
+
+          // Update local record with supabaseId and synced status
+          await table.update(record.id, {
+            supabaseId: response.data.id,
+            syncStatus: 'synced'
+          });
+        } catch (err) {
+          console.error(`[SyncEngine] Failed to sync record from ${localTableName}:`, err);
+          await table.update(record.id, { syncStatus: 'error' });
+        }
+      }
+    } catch (err) {
+      console.error(`[SyncEngine] Error processing table ${localTableName}:`, err);
     }
   }
 }
